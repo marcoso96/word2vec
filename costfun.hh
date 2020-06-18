@@ -5,7 +5,6 @@
 #include <thrust/functional.h>
 
 #include <cuda_runtime.h>
-#include "cublas_v2.h"
 #include <math.h>
 #include <iostream>
 #include <stdio.h>
@@ -14,11 +13,24 @@
 class W2VCost {
 private:
 
-    void softLoss(Matrix &outsideVecs, Matrix &centerVec, Matrix& Y_est, float* loss, int outsideVecIdx);
-    void gradCenter(Matrix &outsideVecs, Matrix &Y_est, Matrix &gradCenter);
-    void gradOutside(Matrix &centerVec, Matrix &Y_est, Matrix &gradOutside);
+    float *Y_est;
+    float *grad_center;
+    float *grad_outside;
+
+    float *loss;
+
+    int context;
+    int embed_size;
+    int batch_size;
+
+    void softLoss(float *outsideVecs, float *centerVec);
+    void gradCenter(float *outsideVecs);
+    void gradOutside(float *centerVec);
 
 public: 
 
-    void lossAndGrad(Matrix &centerVec, Matrix &outsideVecs, int outsideVecIdx, float *loss, Matrix &gradCenter, Matrix &gradOutside);
+    W2VCost(int embed_size, int batch_size);
+    ~W2VCost();
+    
+    void lossAndGrad(float *centerVec, float *outsideVecs, int batch_size);
 };

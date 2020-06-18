@@ -9,6 +9,8 @@ using namespace std;
 class Database {
 private:
 
+    W2VEmbedding *dictionary;
+    
     int* sents;
 
     int word_count;  // palabras en el diccionario
@@ -22,24 +24,26 @@ private:
     string data_path;
     string metadata_path;
 
-    int context;    // contexto para este diccionario
+    int context;    // contexto para armar este diccionario
+    int train_sents;
 
     // parámetros para oraciones
     int sentID;
     int wordID;
     int low_bound;
-    int upper_bound;
-
-    W2VEmbedding dictionary;
+    int up_bound;
 
     void loadMetadata();
     void constructDictionary();
 
     // carga las oraciones ejemplo en Sentences
     void loadSentences();
-    void getRandomContext();
+    int rand_lim(int limit);
 
 public:
 
-    Database(string data_path, string metadata_path, int context);   
+    Database(string data_path, string metadata_path, int train_sents, int context);   
+    ~Database();
+    void getRandomContext();
 };
+

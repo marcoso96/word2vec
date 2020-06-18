@@ -125,7 +125,8 @@ class W2VDataset():
     
 #%% probadito
 
-prueba = W2VDataset(embed_size = 10)
+prueba = W2VDataset(embed_size = 6)
+
 
 prueba.allSentences()
 prueba.toMat()

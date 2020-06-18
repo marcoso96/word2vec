@@ -1,7 +1,7 @@
 #include "costfun.hh"
 
 using namespace std;
-
+using namespace thrust::placeholders;
 
 void print_matrix(Matrix Mat){
 
@@ -16,77 +16,56 @@ void print_matrix(Matrix Mat){
     }
 }
 
-struct exp_functor 
-{
-    __device__
-        float operator()(float x) const     
-        { 
-            return expf(x); 
-        }
-};
-// hago un solo producto entre outside y center, brutalmente ineficiente será? Lo veremos pronto
-// calculo U^T*v_c (U : (outside_window, embed_size), u_o : (1, embed_size), v_c : (1, embed_size))
-// le paso
-__global__ void logitsSoftmax(float *centerVec, float *outsideVecs, float *logits, int outside_window_size, int embed_size)
+// super ineficiente
+__global__ void logitsSoftmax(float *centerVec, float *outsideVecs, float *Y_est, int batch_size, int embed_size)
 {
     // para cada fila tomo los indices del thread 
     int fil = blockIdx.x * blockDim.x + threadIdx.x;
 
     float logits_value = 0.0;
 
-    if (fil < outside_window_size)
+    if (fil < batch_size)
     {   
         for (int i=0 ; i < embed_size; i++)
-        {
+        {   
             // recorro las filas de O
             logits_value +=  outsideVecs[fil*embed_size+i]*centerVec[i];
+            
         }
-
         
-        logits[fil] = logits_value;
+        Y_est[fil] = expf(logits_value);
+        printf("%f\n", Y_est[fil]);
     }
 }
 
-// sum : \sum_{i=1}^{logits_size}exp(logits[i]), softmax/cost tiene la misma dimensión que logits
-__global__ void totalSoftmax(float *logits, float *cost, float sum, int outside_window_size)
-{
-    int fil = blockIdx.x * blockDim.x + threadIdx.x;
+// // sum : \sum_{i=1}^{logits_size}exp(logits[i]), softmax/cost tiene la misma dimensión que logits
+// __global__ void totalSoftmax(float *logits, float sum, int outside_window_size)
+// {
+//     int fil = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (fil<outside_window_size)
-    {
-        cost[fil] = logits[fil]/(sum);
-    }
-}
+//     if (fil<outside_window_size)
+//     {
+//         logits[fil] /= sum;
+//     }
+// }
 
 // gradiente con respecto a la palabra clave (ya le paso el softmax)
 // transpongo la matriz de palabras así le actualizo todo
 // deprecated
-__global__ void gradCenterVec(float * outsideVecs, float *Y_est, float *gradCenter,  int outside_window_size, int embed_size, int outsideVecIdx)
-{
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void gradCenterVec(float* outsideVecs, float* Y_est, float *gradCenter,  int outside_window_size, int embed_size)
+{   
+    int fil = blockIdx.x * blockDim.x + threadIdx.x;
 
     float grad = 0.0;
 
-    if (col<embed_size)
+    if (fil<embed_size)
     {
         for (int i=0 ; i < outside_window_size; i++)
         {
-            // O^T * (y_est-y) donde y es 1 si es el outside vec y 0 otherwise
-            if (i==outsideVecIdx)
-            {
-                grad += outsideVecs[i*embed_size+col]*(Y_est[i]-1);
-
-            }
-            else
-            {
-                grad += outsideVecs[i*embed_size+col]*(Y_est[i]);
-            }
-            
-            printf("%f\n", Y_est[i]);
-        
+            grad += outsideVecs[i*embed_size+fil]*(Y_est[i]);
         }
 
-        gradCenter[col] = grad;
+        gradCenter[fil] += grad;
     }
 }
 
@@ -101,16 +80,19 @@ __global__ void gradOutsideVecs(float *centerVec, float *Y_est, float *gradOutsi
     {
         if(fil< outside_window_size)
         {   
-            gradOutside[fil*embed_size+col] = Y_est[fil]*centerVec[col];
+            gradOutside[fil*embed_size+col] += Y_est[fil]*centerVec[col];
         }
     }
 }
 
 // update implica Y = Y_est - Y
-__global__ void updateY(float *Y, int idx)
+__global__ void updateY(float *Y, float *loss, int idx)
 {
     Y[idx] += -1;
+    *loss += logf(Y[idx]);
 }
+
+
 // le paso el vector central y los vectores outside 
 // vec central es (embed_size, 1), vec outside es (k, embed_size)
 // https://devblogs.nvidia.com/unified-memory-cuda-beginners/ por cudaMallocManaged
@@ -119,89 +101,128 @@ __global__ void updateY(float *Y, int idx)
 // de cada palabra externa dada una central
 // cost es un vector de K elementos que me da una probabilidad empírica de lo cercanas que estan dos palabras en este espacio. es en el mismo sentido, la entropia conjunta entre la palabra real y_i {i=1,...,k}(con prob 1) y la palabra predicha y^{\hat}_i {i=1,...,k}
 
-// para cada palabra externa
-void W2VCost::lossAndGrad(Matrix &centerVec, Matrix &outsideVecs, int outsideVecIdx, float *loss, Matrix &gradCenter, Matrix &gradOutside)
+W2VCost::W2VCost(int embed_size, int context)
 {
-    // chequeo que tengan igual embed_size
-    assert(outsideVecs.shape.y == centerVec.shape.x );
+    // el máximo que voy a requerir es context
+    
+    this -> context = context;
+    this -> embed_size = embed_size;
 
-    Matrix Y_est(outsideVecs.shape.x, 1);        // k valores = cantidad de palabras
+    cout << "alloc " << cudaMalloc(&Y_est, 2*context*sizeof(float))<< endl;
+    cout << "alloc " << cudaMalloc(&grad_center, embed_size*sizeof(float))<< endl;    // (1, embed_size)
+    cout << "alloc " <<cudaMalloc(&grad_outside, 2*context*embed_size*sizeof(float))<< endl;    // (context, embed_size)
+    cout << "alloc " << cudaMalloc(&loss, sizeof(float))<< endl;
 
-    // copio memoria en la matriz de costo en device
-    Y_est.allocateMemory();
-
-    W2VCost::softLoss(outsideVecs, centerVec, Y_est, loss, outsideVecIdx);  
-
-    // debo operar sobre Y_est tal que Y_est = Y_est - 1[outsideVecIdx]
-    updateY<<<1, 1>>>(Y_est.data_d.get(), outsideVecIdx);
-
-    W2VCost::gradCenter(outsideVecs, Y_est, gradCenter);
-    W2VCost::gradOutside(centerVec, Y_est, gradOutside);
-
-
+    cudaMemset(Y_est, 0, 2*context*sizeof(float));
+    cudaMemset(grad_center, 0,  embed_size*sizeof(float));
+    cudaMemset(grad_outside, 0,  2*context*embed_size*sizeof(float));
+    cudaMemset(loss, 0,  sizeof(float));
 }
 
+W2VCost::~W2VCost()
+{
+    cudaFree(this -> grad_center);
+    cudaFree(this -> grad_outside);
+    cudaFree(this -> loss);
+}
+
+// para cada palabra externa
+void W2VCost::lossAndGrad(float *centerVec, float *outsideVecs, int batch_size)
+{   
+    this -> batch_size = batch_size;    // tamaño de contexto en oracion actual
+    // rompe con el paralelismo pero lo veré después
+    cout << "Batch size : " << batch_size <<endl;
+    cout << "Context : " << context << endl;
+    float* aux = (float *)malloc(sizeof(float)*embed_size);
+
+    for(int outsideIdx=0; outsideIdx<batch_size; outsideIdx++)
+    {   
+        cudaMemset(Y_est, 0, 2*context*sizeof(float));
+        
+        // PRUEBA
+        cudaMemcpy(aux, &outsideVecs[outsideIdx*embed_size], sizeof(float)*embed_size, cudaMemcpyDeviceToHost);
+        for(int i=0; i<embed_size ;i++)
+        {
+            cout << aux[i] << "\t";
+        }
+        cout << endl;
+        // END PRUEBA
+
+        W2VCost::softLoss(outsideVecs, centerVec);  
+    
+        // debo operar sobre Y_est tal que Y_est = Y_est - 1[outsideVecIdx]
+        // updateY<<<1, 1>>>(Y_est, loss, outsideIdx);
+        
+        // // actualizo gradientes 
+        // W2VCost::gradCenter(outsideVecs);
+        // W2VCost::gradOutside(centerVec);
+    }
+
+    free(aux);
+    // // sobreescribo estos vectores 
+    // cudaMemcpy(outsideVecs, grad_outside, batch_size*embed_size*sizeof(float), cudaMemcpyDeviceToDevice);
+    // cudaMemcpy(centerVec, grad_center, embed_size*sizeof(float), cudaMemcpyDeviceToDevice);
+}
 // centerVec : (embed_size, 1)
 // outsideVecIdx : int
 // outsideVecs : (window_size, embed_size)
 // check
-void W2VCost::softLoss(Matrix &outsideVecs, Matrix &centerVec, Matrix& Y_est, float *loss, int outsideVecIdx)
+void W2VCost::softLoss(float *outsideVecs, float *centerVec)
 {   
-    float sum = 0;
-    float *logits;
-
-    // variables locales en device 
-    cudaMalloc(&logits, outsideVecs.shape.x*sizeof(float));
+    float sum = 0.0;
+    float *h_print = (float *)malloc(sizeof(float)*batch_size);
 
     // necesito vocab_size threads
     dim3 block_size(256);
-    dim3 block_num((outsideVecs.shape.x+block_size.x-1)/block_size.x);
+    dim3 block_num((batch_size+block_size.x-1)/block_size.x);
 
-    //hago los k productos punto entre central y las outside
-    logitsSoftmax<<<block_size, block_num>>>(centerVec.data_d.get(), outsideVecs.data_d.get(), logits, outsideVecs.shape.x, outsideVecs.shape.y);
+    // //hago los k productos punto entre central y las outside
+    logitsSoftmax<<<block_num, block_size>>>(centerVec, outsideVecs, Y_est, batch_size, embed_size);
 
-    // hago en thrust porque es piola
-    //transformo a exponencial
-    // reduzco a suma
-    thrust::device_ptr<float> logits_ptr = thrust::device_pointer_cast(logits);
-    thrust::transform(logits_ptr, logits_ptr+outsideVecs.shape.x, logits_ptr, exp_functor());
-    sum = thrust::reduce(logits_ptr,logits_ptr+outsideVecs.shape.x, 0, thrust::plus<float>()); 
+    cudaMemcpy(h_print, Y_est, batch_size*sizeof(float), cudaMemcpyDeviceToHost);
+
+
+    // for(int i=0; i<batch_size; i++)
+    // {
+    //     cout << h_print[i] << '\t';
+    // }
+    // cout << endl;
+    // thrust::device_ptr<float> logits_ptr = thrust::device_pointer_cast(Y_est);
+    // sum = thrust::reduce(logits_ptr,logits_ptr+batch_size); 
     
-    // acá realmente hago softmax
-    totalSoftmax<<<block_size, block_num>>>(logits, Y_est.data_d.get(), sum, outsideVecs.shape.x);
-    // libero memoria en device
-    cudaFree(logits);
+    
+    // // acá realmente hago softmax
+    // thrust::transform(logits_ptr, logits_ptr+batch_size, logits_ptr, _1/sum);
 
-    cudaMemcpy(loss, &Y_est.data_d.get()[outsideVecIdx], sizeof(float), cudaMemcpyDeviceToHost);
-    *loss = -logf(*loss); 
+    // cudaMemcpy(h_print, Y_est, sizeof(float)*batch_size, cudaMemcpyDeviceToHost);
+
+    // for(int i=0; i<batch_size; i++)
+    // {
+    //     cout << h_print[i] << endl;
+    // }
+    // free(h_print);
+
+
+
+    // *loss = -logf(*loss); 
 }
-
 
 // check
-void W2VCost::gradCenter(Matrix &outsideVecs, Matrix &Y_est, Matrix &gradCenter)
+void W2VCost::gradCenter(float *outsideVecs)
 {
+    // necesito embed_size threads
+    dim3 block_size(256);
+    dim3 block_num((embed_size+block_size.x-1)/block_size.x);
 
-    // // necesito embed_size threads
-    // dim3 block_size(256);
-    // dim3 block_num((outsideVecs.shape.y+block_size.x-1)/block_size.x);
-
-    // gradCenterVec<<<block_size, block_num>>>(outsideVecs.data_d.get(), Y_est.data_d.get(), gradCenter.data_d.get(), outsideVecs.shape.x, outsideVecs.shape.y, outsideVecIdx);
-    cublasHandle_t handle;
-    const float alfa = 1.0;
-    const float beta = 0.0;
-
-    cublasCreate(&handle);
-    // la traspuse a outsideVecs
-    cublasSgemv(handle, CUBLAS_OP_T, outsideVecs.shape.y, outsideVecs.shape.x, &alfa, outsideVecs.data_d.get(), outsideVecs.shape.y, Y_est.data_d.get(), 1, &beta, gradCenter.data_d.get(), 1);
+    gradCenterVec<<<block_num, block_size>>>(outsideVecs, Y_est, grad_center, batch_size, embed_size);
 
 }
 
 
-void W2VCost::gradOutside(Matrix &centerVec, Matrix &Y_est, Matrix &gradOutside)
+void W2VCost::gradOutside(float *centerVec)
 {
-
     dim3 block_size(256, 256);
-    dim3 block_num((Y_est.shape.x+block_size.x-1)/block_size.x, (centerVec.shape.y+block_size.y-1)/block_size.y);
+    dim3 block_num((batch_size+block_size.x-1)/block_size.x, (embed_size+block_size.y-1)/block_size.y);
     
-    gradOutsideVecs<<<block_size, block_num>>>(centerVec.data_d.get(), Y_est.data_d.get(), gradOutside.data_d.get(), gradOutside.shape.x, gradOutside.shape.y);
+    gradOutsideVecs<<<block_num, block_size>>>(centerVec, Y_est, grad_outside, batch_size, embed_size);
 }

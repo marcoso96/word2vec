@@ -1,6 +1,4 @@
 #include "database.hh"
-#include "matrix.hh"
-#include "w2vembedding.hh"
 #include <iostream>
 #include <time.h>
 #include <stdlib.h>
@@ -19,21 +17,13 @@ void print(int * input, int max)
 
 int main()
 {   
-    int batch_size = 1;
-    int embed_size = 5;
-    int vocab_size = 3;
-    int window_size = 3;
-
-    Shape dict_shape(vocab_size, embed_size);
-    W2VEmbedding dict(dict_shape);
+    int train_sents = 2;
+    int context = 2;
 
     srand(time(NULL));
-
-    for(i = 0; i<batch_size; i++)
-    {
-        window = rand()%window_size;
+    Database data("dataset.npy", "data_words.npy", context, train_sents);
     
-    }
+    data.getRandomContext();
     return 0;
 }
 
