@@ -1,6 +1,6 @@
 sentence_index	sentence
-1	Esto es buenardo
-2	Buenardo es la palabra del año
-3	Malarda la oración anterior.
+0	Esto es buenardo
+1	Buenardo es la palabra del año
+2	Malarda la oración anterior.
 
 

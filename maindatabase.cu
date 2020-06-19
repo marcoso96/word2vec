@@ -17,13 +17,17 @@ void print(int * input, int max)
 
 int main()
 {   
-    int train_sents = 2;
+    int train_sents = 3;
     int context = 2;
 
     srand(time(NULL));
     Database data("dataset.npy", "data_words.npy", context, train_sents);
     
-    data.getRandomContext();
+    for(int i=0; i<train_sents; i++)
+    {
+        data.getRandomContext();
+    }
+        
     return 0;
 }
 

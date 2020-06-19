@@ -61,7 +61,7 @@ void Database::constructDictionary()
 {
     Shape dict_shape(word_count, embed_size);
 
-    this -> dictionary = new W2VEmbedding(dict_shape, context, train_sents);
+    this -> dictionary = new W2VEmbedding(dict_shape, context, tot_sents, train_sents);
 }
 
 // agarro un contexto random de la base de datos
@@ -72,7 +72,6 @@ void Database::getRandomContext()
     
     low_bound = wordID - context;
     up_bound = wordID + context;
-
     // condiciones de borde / bad word -> saco una nueva palabra
     if ((sentID+low_bound)<0  || sents[sentID+wordID] == -1){
         

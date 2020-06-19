@@ -23,7 +23,7 @@ private:
     int embed_size;
     int batch_size;
 
-    void softLoss(float *outsideVecs, float *centerVec);
+    void softLoss(float *outsideVecs, float *centerVec, int outIdx);
     void gradCenter(float *outsideVecs);
     void gradOutside(float *centerVec);
 
