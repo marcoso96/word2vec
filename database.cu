@@ -2,12 +2,14 @@
 
 using namespace std;
 
-Database::Database(string data_path, string metadata_path, int context, int train_sents)   
+Database::Database(string data_path, string metadata_path, int context, int train_sents, int lr)   
 {
     this->data_path = data_path;
     this->metadata_path = metadata_path;
     this->context = context;
     this->train_sents = train_sents;
+    this -> lr = lr;
+
     // cargo los parámetros que necesito 
     loadMetadata();
     // cargo la base de datos de oraciones
@@ -61,7 +63,7 @@ void Database::constructDictionary()
 {
     Shape dict_shape(word_count, embed_size);
 
-    this -> dictionary = new W2VEmbedding(dict_shape, context, tot_sents, train_sents);
+    this -> dictionary = new W2VEmbedding(dict_shape, context, tot_sents, train_sents, lr);
 }
 
 // agarro un contexto random de la base de datos

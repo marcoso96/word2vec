@@ -7,7 +7,7 @@ class W2VDataset():
     def __init__(self, embed_size, path=None):
         
         if not path:
-            path = "./"
+            path = ""
 
         self.path = path
         self.embed_size = embed_size
@@ -120,14 +120,9 @@ class W2VDataset():
         
         np.save('dataset.npy', np.array(self._allsentences, dtype = np.int32).T)
         np.save('data_words.npy', np.array([self._wordcount, self.max_len, self.embed_size, self.tot_sents], dtype = np.int32).T)
-
-        
-    
 #%% probadito
 
-prueba = W2VDataset(embed_size = 6)
-
-
+prueba = W2VDataset(embed_size = 10)
 prueba.allSentences()
 prueba.toMat()
 

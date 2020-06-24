@@ -3,6 +3,8 @@
 #include <curand.h>
 #include <cuda.h>
 #include "costfun.hh"
+#include <iostream>
+
 
 class W2VEmbedding{
 private :
@@ -13,8 +15,6 @@ private :
     int outOffset;
     int context;
     
-    float* d_centerVec;         // acá voy a hacer las cuentas y obtener el gradiente central
-    float* d_outsideVecs;       // acá voy a hacer las cuentas y obtener los gradientes outside
     int* d_idx;                 // acá voy a poner los indices en device
     int sents_num;              // número de oraciones para entrenamiento
     int train_sents;
@@ -23,7 +23,7 @@ private :
 
 public :
 
-    W2VEmbedding(Shape dict_shape, int context, int sents_num, int train_sents);
+    W2VEmbedding(Shape dict_shape, int context, int sents_num, int train_sents, int lr);
     ~W2VEmbedding();
     
     // cargo las palabras de entrada
