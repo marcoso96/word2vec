@@ -15,27 +15,20 @@ void print(int * input, int max)
     cout << endl;
 }
 
-int main()
+int main(int argc, char *argv[])
 {   
-    int train_sents = 3;
-    int context = 2;
+    int train_sents;
+    int context;
+
+    assert(argc == 3);
+    train_sents = atoi(argv[1]);
+    context = atoi(argv[2]);
 
     srand(time(NULL));
-    Database data("dataset.npy", "data_words.npy", context, train_sents);
+    Database data("dataset.npy", "data_words.npy", train_sents, context, 0.3);
     
-    for(int i=0; i<train_sents; i++)
-    {
-        data.getRandomContext();
-    }
-        
+    data.updateDictionary();
+    data.saveDictionary("palabritas.npy");
+
     return 0;
 }
-
-
-    // Database data;
-
-    // data.loadSentences("dataset.npy", "data_words.npy");
-
-    // print_matrix(data.sents, data.tot_sents, data.max_len);
-
-    // return 0;

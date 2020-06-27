@@ -27,36 +27,35 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-void print_matrix(float *Mat, int Mat_height, int Mat_width);
+void print_matrix(double *Mat, int Mat_height, int Mat_width);
 class W2VCost {
 private:
 
-    float *Y_est;
-    float *grad_center;
-    float *grad_outside;
-    float *loss;
+    double *Y_est;
+    double *grad_center;
+    double *grad_outside;
+    double *loss;
 
-    int context;
     int embed_size;
-    int batch_size;
     int vocab_size;
     int out_offset;
 
     int iteration;
-    int lr;
+    double lr;
+    int batch_size = 50;
 
-    void softLoss(float *wordVecs, int centerVecIdx);
-    void gradCenter(float *outsideVecs);
-    void gradOutside(float *centerVec);
+    void softLoss(double *wordVecs, int centerVecIdx);
+    void gradCenter(double *outsideVecs);
+    void gradOutside(double *centerVec);
 
-    void updateOutside(float* wordVecs);
-    void updateCenter(float* wordVecs);
+    void updateOutside(double* outsideVecs);
+    void updateCenter(double* centerVec);
 
 public: 
 
-    W2VCost(int embed_size, int batch_size, int vocab_size, , int lr);
+    W2VCost(int embed_size, int vocab_size , double lr);
     ~W2VCost();
     
-    void lossAndGrad(float* wordVecs, int* outsideIdxs,  int centerIdx, int batch_size);
-    void updateGradients(float* wordVecs, int centerIdx);
+    void lossAndGrad(double* wordVecs, int* outsideIdxs,  int centerIdx, int context_size);
+    void updateGradients(double* wordVecs, int centerIdx);
 };

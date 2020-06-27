@@ -4,7 +4,9 @@
 #include <cuda.h>
 #include "costfun.hh"
 #include <iostream>
+#include "cnpy.h"
 
+using namespace std;
 
 class W2VEmbedding{
 private :
@@ -23,9 +25,10 @@ private :
 
 public :
 
-    W2VEmbedding(Shape dict_shape, int context, int sents_num, int train_sents, int lr);
+    W2VEmbedding(Shape dict_shape, int context, int sents_num, int train_sents, double lr);
     ~W2VEmbedding();
     
     // cargo las palabras de entrada
-    void updateDictionary(int *h_Idx, int sentID, int cWordID, int low_bound, int up_bound);
+    void updateDictStep(int *h_Idx, int sentID, int cWordID, int low_bound, int up_bound);
+    void saveDict(string data_path);
 };

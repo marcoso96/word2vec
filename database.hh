@@ -34,16 +34,18 @@ private:
     int up_bound;
 
     void loadMetadata();
-    void constructDictionary();
+    void constructDictionary(double lr);
 
+    void getRandomContext();
     // carga las oraciones ejemplo en Sentences
     void loadSentences();
     int rand_lim(int limit);
 
 public:
 
-    Database(string data_path, string metadata_path, int train_sents, int context);   
+    Database(string data_path, string metadata_path, int train_sents, int context, double lr);   
     ~Database();
-    void getRandomContext();
+    void updateDictionary();
+    void saveDictionary(string data_path);
 };
 

@@ -1,6 +1,8 @@
 #%%
 import numpy as np
 import random
+import subprocess
+import matplotlib.pyplot as plt
 
 class W2VDataset():
     
@@ -14,6 +16,7 @@ class W2VDataset():
         self._sentences = []
         self._rejectProb = []
         self._allsentences = []
+        self.dictionary = []
         
     def tokens(self):
         
@@ -27,9 +30,8 @@ class W2VDataset():
             
             for w in sentence:
                 
-                wordcount += 1
-                
                 if not w in tokens:
+                    wordcount += 1
                     # me armo el diccionario
                     tokens[w] = idx
                     revtokens += [w]
@@ -120,14 +122,66 @@ class W2VDataset():
         
         np.save('dataset.npy', np.array(self._allsentences, dtype = np.int32).T)
         np.save('data_words.npy', np.array([self._wordcount, self.max_len, self.embed_size, self.tot_sents], dtype = np.int32).T)
+        
+    def loadDict(self, strpath = "palabritas.npy"):
+        
+        dictionary = np.load(strpath)
+        self.dictionary = np.concatenate((dictionary[:self._wordcount,:], dictionary[self._wordcount:,:]), axis = 1)
+
+    
+    def getDict(self):
+        """
+        Devuelve el diccionario
+        """
+        return self.dictionary
+        
+    def word2idx(self, str):
+         
+        """
+        Devuelve el indice de la palabra en el diccionario
+        """
+        return self._tokens.get(str)
+
+    def visualizeWords(self, words):
+        
+        visualIdx = [self._tokens[word] for word in words ]
+        
+        visualVecs = self.dictionary[visualIdx, :]
+        print(visualVecs)
+        temp = (visualVecs - np.mean(visualVecs, axis=0))
+        covariance = 1.0 / len(visualIdx) * temp.T.dot(temp)
+                
+        return covariance
+    
+            
 #%% probadito
 
 prueba = W2VDataset(embed_size = 10)
 prueba.allSentences()
 prueba.toMat()
 
-#%%
-print(np.array([prueba.allSentences()]))
+comp = False
 
+if comp == True:
+    
+    subprocess.run(["nvcc", "-o", "dataprueba", "maindatabase.cu", "costfun.cu", "database.cu", "w2vembedding.cu", "matrix.cu", "--std=c++11",  "-L/usr/local/lib/", "-lcnpy", "-lz", "--std=c++11", "-lcurand"])
+
+subprocess.run(["./dataprueba", "20", "2"])
+prueba.loadDict()
+print(prueba.getDict())
+# resolver tema de outside words
+
+#%% Visualizo resultados
+
+visualWords = ["buenardo", "es", "la"]
+#%% Colormap
+
+plt.figure(figsize = (20, 20))
+plt.imshow(prueba.visualizeWords(visualWords))
+plt.yticks(list(prueba._tokens.values()), list(prueba._tokens.keys()))
+
+plt.show()
+#%%
+prueba._tokens.values()
 #%%
 

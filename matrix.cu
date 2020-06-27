@@ -63,8 +63,8 @@ void Matrix::allocateHostMemory()
         
         // le calzo la memoria en host
         // [&] captura todas las variables en scope por referencia / lambda function que deletea la memoria apuntada cuando tenga que realizar la morición de la matrícula
-        data_h = std::shared_ptr<float>(new float[shape.x * shape.y], [&](float * ptr){delete[] ptr; }); 
-        memset(data_h.get(), 0, shape.x * shape.y * sizeof(float));
+        data_h = std::shared_ptr<double>(new double[shape.x * shape.y], [&](double * ptr){delete[] ptr; }); 
+        memset(data_h.get(), 0, shape.x * shape.y * sizeof(double));
         // le aviso que ya aloque memoria en host
         h_allocated = true;
     }
@@ -75,16 +75,16 @@ void Matrix::allocateDevMemory()
 
     if (!d_allocated)
     {
-        float * device_memory = nullptr;
+        double * device_memory = nullptr;
         
         // aloco memoria en GPU y verifico que onda si hay errores
-        cudaMalloc(&device_memory, shape.x*shape.y*sizeof(float));
+        cudaMalloc(&device_memory, shape.x*shape.y*sizeof(double));
         NNExc::thIfDevErr("No se puede alocar memoria para tensor");
 
-        cudaMemset(device_memory, 0, shape.x*shape.y*sizeof(float));
+        cudaMemset(device_memory, 0, shape.x*shape.y*sizeof(double));
         // de vuelta, le paso al puntero inteligente el método de destucción
-        data_d = std::shared_ptr<float>(device_memory,
-                                        [&](float *ptr){ cudaFree(ptr); });
+        data_d = std::shared_ptr<double>(device_memory,
+                                        [&](double *ptr){ cudaFree(ptr); });
 
         d_allocated = true;
     }
@@ -96,7 +96,7 @@ void Matrix::copyH2D() {
     // chequeo que esten alocadas las memorias en host y device
     if (d_allocated && h_allocated) {
         
-        cudaMemcpy(data_d.get(), data_h.get(), shape.x*shape.y*sizeof(float),cudaMemcpyHostToDevice);
+        cudaMemcpy(data_d.get(), data_h.get(), shape.x*shape.y*sizeof(double),cudaMemcpyHostToDevice);
         NNExc::thIfDevErr("No se puede copiar los datos de host a device\n");
     }  
     else {
@@ -111,7 +111,7 @@ void Matrix::copyD2H() {
 
     if (d_allocated && h_allocated) {
         
-        cudaMemcpy(data_h.get(), data_d.get(), shape.x*shape.y*sizeof(float),cudaMemcpyDeviceToHost);
+        cudaMemcpy(data_h.get(), data_d.get(), shape.x*shape.y*sizeof(double),cudaMemcpyDeviceToHost);
         NNExc::thIfDevErr("No se pudo copiar los datos de device a host");
         
     }  
@@ -122,10 +122,10 @@ void Matrix::copyD2H() {
 }
 
 // equivalente a __get__ en la matriz de host (accedo al indice de la matriz)
-float& Matrix::operator[](const int idx){
+double& Matrix::operator[](const int idx){
     return data_h.get()[idx];
 }
 
-const float& Matrix::operator[](const int idx) const{
+const double& Matrix::operator[](const int idx) const{
     return data_h.get()[idx];
 }

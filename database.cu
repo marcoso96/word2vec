@@ -2,20 +2,19 @@
 
 using namespace std;
 
-Database::Database(string data_path, string metadata_path, int context, int train_sents, int lr)   
+Database::Database(string data_path, string metadata_path,  int train_sents, int context, double lr)   
 {
     this->data_path = data_path;
     this->metadata_path = metadata_path;
     this->context = context;
     this->train_sents = train_sents;
-    this -> lr = lr;
 
     // cargo los parámetros que necesito 
     loadMetadata();
     // cargo la base de datos de oraciones
     loadSentences();
     // con las oraciones, construyo el diccionario
-    constructDictionary();
+    constructDictionary(lr);
 }
 
 Database::~Database(){
@@ -59,7 +58,12 @@ void Database::loadSentences()
     memcpy(this -> sents, arr.data<int>(), tot_sents*max_len*sizeof(int));
 }
 
-void Database::constructDictionary()
+void Database::saveDictionary(string data_path)
+{
+    dictionary->saveDict(data_path); 
+}
+
+void Database::constructDictionary(double lr)
 {
     Shape dict_shape(word_count, embed_size);
 
@@ -95,17 +99,7 @@ void Database::getRandomContext()
 
     if ((up_bound-low_bound)>0)
     {
-        dictionary->updateDictionary(sents, sentID, wordID, low_bound, up_bound);
-        // cout << "SentID : " << sentID/max_len << endl;
-        // cout << "WordID : " << wordID << endl;
-        // cout << "TotSents : " << tot_sents << endl;
-        // cout << "Max Len : " << max_len << endl;
-        // cout << "Up Bound : " << up_bound << endl;
-        // cout << "Low Bound : " << low_bound << endl;
-        
-        // cout<< sents[sentID+wordID] << '\t';
-
-        // cout<< endl;
+        dictionary->updateDictStep(sents, sentID, wordID, low_bound, up_bound);
         return;
     }
     else 
@@ -115,3 +109,11 @@ void Database::getRandomContext()
     }
 }
 
+void Database::updateDictionary()
+{   
+    while(train_sents > 0)
+    {
+        getRandomContext();     // updateo con una oración nueva
+        train_sents--;
+    }
+}

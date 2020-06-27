@@ -1,6 +1,5 @@
 sentence_index	sentence
-0	Esto es buenardo
-1	Buenardo es la palabra del año
-2	Malarda la oración anterior.
-
+1	The Rock is destined to be the 21st Century 's new `` Conan ''
+2	The gorgeously elaborate continuation.
+3	Effective but too-tepid biopic
 

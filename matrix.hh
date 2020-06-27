@@ -24,8 +24,8 @@ class Matrix
         Shape shape;
 
         // van a encargarse de las referencias de memoria intelimágicamente
-        std::shared_ptr<float> data_d;
-        std::shared_ptr<float> data_h;
+        std::shared_ptr<double> data_d;
+        std::shared_ptr<double> data_h;
 
         // constructor
         Matrix(size_t x_dim = 1, size_t y_dim = 1);
@@ -41,8 +41,8 @@ class Matrix
         void copyD2H();
 
         // acceso al elemento, equivalente a get
-        float& operator[](const int index);
-        const float& operator[](const int index) const;
+        double& operator[](const int index);
+        const double& operator[](const int index) const;
 
         void print_matrix();
 };
