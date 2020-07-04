@@ -19,13 +19,12 @@ private :
     
     int* d_idx;                 // acá voy a poner los indices en device
     int sents_num;              // número de oraciones para entrenamiento
-    int train_sents;
     
     void initW2V();
 
 public :
 
-    W2VEmbedding(Shape dict_shape, int context, int sents_num, int train_sents, double lr);
+    W2VEmbedding(Shape dict_shape, int context, int sents_num, int batch_size, double lr);
     ~W2VEmbedding();
     
     // cargo las palabras de entrada

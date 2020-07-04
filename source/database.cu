@@ -2,12 +2,27 @@
 
 using namespace std;
 
-Database::Database(string data_path, string metadata_path,  int train_sents, int context, double lr)   
+
+int Database::poissonRandom(double expectedValue) {
+  int n = 0; //counter of iteration
+  double limit; 
+  double x;  //pseudo random number
+  limit = exp(-expectedValue);
+  x = rand() / INT_MAX; 
+  while (x > limit) {
+    n++;
+    x *= rand() / INT_MAX;
+  }
+  return n;
+}
+
+Database::Database(string data_path, string metadata_path,  int train_sents, int context, int batch_size, double lr)   
 {
     this->data_path = data_path;
     this->metadata_path = metadata_path;
     this->context = context;
     this->train_sents = train_sents;
+    this->batch_size = batch_size;
 
     // cargo los parámetros que necesito 
     loadMetadata();
@@ -19,6 +34,7 @@ Database::Database(string data_path, string metadata_path,  int train_sents, int
 
 Database::~Database(){
 
+    delete this->dictionary;
     free(this->sents);
 }
 
@@ -48,6 +64,9 @@ void Database::loadMetadata()
     this -> tot_sents   = params[3];
 
     this -> sents = (int *)malloc(tot_sents*max_len*sizeof(int));
+
+    cout << "Número de palabras : " << word_count << endl;
+    cout << "Dimensión de los vectores : " << embed_size << endl;
 }
 
 void Database::loadSentences()
@@ -59,7 +78,7 @@ void Database::loadSentences()
 }
 
 void Database::saveDictionary(string data_path)
-{
+{   
     dictionary->saveDict(data_path); 
 }
 
@@ -67,7 +86,7 @@ void Database::constructDictionary(double lr)
 {
     Shape dict_shape(word_count, embed_size);
 
-    this -> dictionary = new W2VEmbedding(dict_shape, context, tot_sents, train_sents, lr);
+    this -> dictionary = new W2VEmbedding(dict_shape, context, tot_sents, batch_size, lr);
 }
 
 // agarro un contexto random de la base de datos
@@ -78,6 +97,8 @@ void Database::getRandomContext()
     
     low_bound = wordID - context;
     up_bound = wordID + context;
+
+
     // condiciones de borde / bad word -> saco una nueva palabra
     if ((sentID+low_bound)<0  || sents[sentID+wordID] == -1){
         
@@ -86,14 +107,14 @@ void Database::getRandomContext()
     }
 
     // low_bound se sube a la oracion anterior
-    while (low_bound < 0)
+    while (sents[sentID+low_bound] == -1 || low_bound < 0)
     {
         low_bound++;
     }
     
     // up_bound se mete en palabras invalidas
-    while (sents[sentID+up_bound] == -1 || up_bound>max_len)
-    {
+    while (sents[sentID+up_bound] == -1 || (up_bound)>=max_len)
+    {   
         up_bound--;
     }
 
@@ -111,8 +132,15 @@ void Database::getRandomContext()
 
 void Database::updateDictionary()
 {   
+    int i = 0; 
+
     while(train_sents > 0)
     {
+        if((train_sents % PRINT_EVERY) == 0) 
+        {
+            saveDictionary("Mediciones/News/news"+to_string(i)+".npy");
+            i++;
+        }
         getRandomContext();     // updateo con una oración nueva
         train_sents--;
     }

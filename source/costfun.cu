@@ -1,8 +1,5 @@
 #include "costfun.hh"
 
-using namespace std;
-using namespace thrust::placeholders;
-
 void print_matrix(double *Mat, int Mat_height, int Mat_width){
 
     double* aux = (double *)malloc(sizeof(double)*Mat_width*Mat_height);
@@ -22,12 +19,21 @@ void print_matrix(double *Mat, int Mat_height, int Mat_width){
     free(aux);
 }
 
+struct max_exp
+{
+    double max;
+    max_exp(double m){max = m;};
+    __device__ double operator()(double y)
+    {
+        return exp(y-max);
+    }
+};
+
 // non safe at all
 __global__ void logitsSoftmax(double *wordVecs, double *Y_est, int centerIdx, int vocab_size, int embed_size, int offset)
 {
     // para cada fila tomo los indices del thread 
     int fil = blockIdx.x * blockDim.x + threadIdx.x;
-
     double logits_value = 0.0;
 
     if (fil < vocab_size)
@@ -37,8 +43,7 @@ __global__ void logitsSoftmax(double *wordVecs, double *Y_est, int centerIdx, in
             // recorro las filas de Offset vectors
             logits_value +=  wordVecs[offset+fil*embed_size+i]*wordVecs[centerIdx*embed_size+i];   
         }  
-        
-        Y_est[fil] = exp2(logits_value);
+        Y_est[fil] = logits_value;
     }
 }
 // gradiente con respecto a la palabra clave (ya le paso el softmax)
@@ -77,10 +82,11 @@ __global__ void gradOutsideVecs(double *centerVec, double *Y_est, double *gradOu
 }
 
 // update implica Y = Y_est - Y
-__global__ void updateY(double *Y, double *loss, int* out_idxs, int currIdx)
+__global__ void updateY(double *Y, double *loss, int* out_idxs, int currIdx, int batch_size)
 {   
+    // printf("%lf\t%lf\tind : %d \tsent ind : %d\n",Y[out_idxs[currIdx]], log(Y[out_idxs[currIdx]]), currIdx, out_idxs[currIdx]);
+    *loss -= log(Y[out_idxs[currIdx]]);
     Y[out_idxs[currIdx]] += -1;
-    *loss += log2(Y[out_idxs[currIdx]]);
     __syncthreads();
 }
 
@@ -118,15 +124,19 @@ __global__ void upOutside(double *outsideVecs, double *grad_outside, double lr, 
 // de cada palabra externa dada una central
 // cost es un vector de K elementos que me da una probabilidad empírica de lo cercanas que estan dos palabras en este espacio. es en el mismo sentido, la entropia conjunta entre la palabra real y_i {i=1,...,k}(con prob 1) y la palabra predicha y^{\hat}_i {i=1,...,k}
 
-W2VCost::W2VCost(int embed_size, int vocab_size, double lr)
-{
+W2VCost::W2VCost(int embed_size, int vocab_size, double lr, int batch_size)
+{   
+    out_loss.open("out_loss_Cublas.txt");
     // el máximo que voy a requerir es context
     this -> embed_size = embed_size;
     this -> vocab_size = vocab_size;
     this -> out_offset = vocab_size*embed_size;
-
+    this -> batch_size = batch_size;
+    
     this -> lr = lr;
     this -> iteration = 0;
+
+    cublasCreate(&(this -> handler));
 
     cudaMalloc(&Y_est, vocab_size*sizeof(double));
     cudaMalloc(&grad_center, embed_size*sizeof(double));    // (1, embed_size)
@@ -140,11 +150,14 @@ W2VCost::W2VCost(int embed_size, int vocab_size, double lr)
 }
 
 W2VCost::~W2VCost()
-{
+{   
+    cublasDestroy(this -> handler);
     cudaFree(this -> grad_center);
     cudaFree(this -> grad_outside);
     cudaFree(this -> loss);
     cudaFree(this -> Y_est);
+    out_loss.close();
+
 }
 
 // para cada palabra externa
@@ -155,49 +168,67 @@ void W2VCost::lossAndGrad(double* wordVecs, int* outsideIdxs,  int centerIdx, in
     for(int currentOutIdx=0; currentOutIdx<context_size; currentOutIdx++)
     {   
         W2VCost::softLoss(wordVecs, centerIdx);
-        updateY<<<1,1>>>(Y_est, loss, outsideIdxs, currentOutIdx);
+        updateY<<<1,1>>>(Y_est, loss, outsideIdxs, currentOutIdx, batch_size);
+        gpuErrchk(cudaPeekAtLastError());
         // // actualizo gradientes 
         W2VCost::gradCenter(&wordVecs[out_offset]);
         W2VCost::gradOutside(&wordVecs[centerIdx*embed_size]);
-
-        cudaMemset(Y_est, 0,  vocab_size*sizeof(double));
-        gpuErrchk(cudaPeekAtLastError());
     }
 }
 
 void W2VCost::updateGradients(double* wordVecs, int centerIdx)
 {   
-    
+    double loss_h;
+
     updateCenter(&wordVecs[embed_size*centerIdx]);
-    updateOutside(&wordVecs[out_offset]);
-    
-    this -> iteration ++;
-    if((this -> iteration%this->batch_size) == 0) 
-    {
-        this -> lr *= 0.5;
-    }
-
-    cout << this->iteration << endl;
-
     cudaMemset(grad_center, 0,  embed_size*sizeof(double));
     gpuErrchk(cudaPeekAtLastError());
 
+    updateOutside(&wordVecs[out_offset]);
+    // print_matrix(grad_outside, vocab_size, embed_size);
     cudaMemset(grad_outside, 0,  vocab_size*embed_size*sizeof(double));
     gpuErrchk(cudaPeekAtLastError());
+
+    this -> iteration ++;
+
+    if((this -> iteration%PRINT_EVERY)== 0){
+        
+        if (exploss == 0)
+        {  
+            cudaMemcpy(&exploss, loss, sizeof(double), cudaMemcpyDeviceToHost);
+            exploss /= batch_size;
+        }
+        else 
+        {
+            cudaMemcpy(&loss_h, loss, sizeof(double), cudaMemcpyDeviceToHost);
+            loss_h /= batch_size;
+            exploss = 0.95*exploss+0.05*loss_h;    
+        }
+        
+        printf("Iter : %d\tLoss : %.10lf\n", iteration, exploss);
+        out_loss << iteration << "," << exploss << endl;
+    }
+    // ACTUALIZO OUTSIDE CADA BATCH SIZE Y CAMBIO LR
+    if((this -> iteration%this->batch_size) == 0) 
+    { 
+        cudaMemset(loss, 0, sizeof(double));
+        this -> lr *= 0.5;
+    }
 }
 
 void W2VCost::updateCenter(double* centerVec)
-{
+{   
         // necesito vocab_size threads
     dim3 block_size(256);
     dim3 block_num((embed_size+block_size.x-1)/block_size.x);
 
     upCenter<<<block_num, block_size>>>(centerVec, grad_center, lr, embed_size, batch_size);
     gpuErrchk(cudaPeekAtLastError());
+
 }
 
 void W2VCost::updateOutside(double* outsideVecs)
-{
+{   
     // necesito vocab_size threads
     dim3 block_size(8, 8);
     dim3 block_num((embed_size+block_size.x-1)/block_size.x, (vocab_size+block_size.y-1)/block_size.y);
@@ -209,7 +240,8 @@ void W2VCost::updateOutside(double* outsideVecs)
 void W2VCost::softLoss(double *wordVecs, int centerVecIdx)
 {   
     double sum = 0.0;
-    
+    double max;
+
     // necesito vocab_size threads
     dim3 block_size(256);
     dim3 block_num((vocab_size+block_size.x-1)/block_size.x);
@@ -217,29 +249,40 @@ void W2VCost::softLoss(double *wordVecs, int centerVecIdx)
     assert(out_offset == vocab_size*embed_size);
     assert(centerVecIdx < vocab_size);
 
-    // print_matrix(wordVecs, 2*vocab_size, embed_size);
-    // hago los k productos punto entre central y las outside
+    #ifdef SIMPLECUDA
     logitsSoftmax<<<block_num, block_size>>>(wordVecs, Y_est, centerVecIdx, vocab_size, embed_size, out_offset);
     gpuErrchk(cudaPeekAtLastError());
+    #endif 
+
+    #ifdef CUBLAS
+    stat = cublasDgemv(this->handler, CUBLAS_OP_T, embed_size, vocab_size, &alfa, &wordVecs[out_offset], embed_size, &wordVecs[embed_size*centerVecIdx], 1, &beta, Y_est, 1);
+    #endif
 
     thrust::device_ptr<double>Y_dev = thrust::device_pointer_cast(Y_est);
+    max = *(thrust::max_element(Y_dev, Y_dev+vocab_size));
+
+    // para fomentar la estabilidad y las buenas costumbres
+    thrust::transform(Y_dev, Y_dev+vocab_size, Y_dev, max_exp(max));
     sum = thrust::reduce(Y_dev, Y_dev+vocab_size, 0, thrust::plus<double>()); 
-    // // acá realmente hago softmax
+
     thrust::transform(Y_dev, Y_dev+vocab_size, Y_dev, _1/sum);
     gpuErrchk(cudaPeekAtLastError());
- 
-    // *loss = -logf(*loss); 
 }
+
 
 void W2VCost::gradCenter(double *outsideVecs)
 {   
-    // cout <<"Batch size gradcen : " << batch_size << endl;
-    // necesito embed_size threads
     dim3 block_size(256);
     dim3 block_num((embed_size+block_size.x-1)/block_size.x);
 
+    #ifdef SIMPLECUDA
     gradCenterVec<<<block_num, block_size>>>(outsideVecs, Y_est, grad_center, vocab_size, embed_size);
     gpuErrchk(cudaPeekAtLastError());
+    #endif
+
+    #ifdef CUBLAS
+    stat = cublasDgemv(this->handler, CUBLAS_OP_N, embed_size, vocab_size, &alfa, outsideVecs, embed_size, Y_est, 1, &beta, grad_center, 1);
+    #endif
 }
 
 void W2VCost::gradOutside(double *centerVec)
@@ -248,8 +291,6 @@ void W2VCost::gradOutside(double *centerVec)
     dim3 block_size(8, 8);
     dim3 block_num((vocab_size+block_size.x-1)/block_size.x, (embed_size+block_size.y-1)/block_size.y);
     
-    // cout << "Antes" << endl;
-    // print_matrix(grad_outside, vocab_size, embed_size);
     gradOutsideVecs<<<block_num, block_size>>>(centerVec, Y_est, grad_outside, vocab_size, embed_size);
     gpuErrchk(cudaPeekAtLastError());
 }
